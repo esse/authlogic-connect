@@ -40,11 +40,24 @@ module AuthlogicConnect::Oauth
           # attempted_record is part of AuthLogic
           hash = oauth_token_and_secret
           token = token_class.find_by_key_or_token(hash[:key], hash[:token], :include => [:user]) # some weird error if I leave out the include)
+          
           if token
             self.attempted_record = token.user
           elsif auto_register?
             self.attempted_record = klass.new
             self.attempted_record.access_tokens << token_class.new(hash)
+            # If it's a facebook token lets look up the users email address
+            if self.attempted_record.has_token?(:facebook)
+              self.attempted_record.active_token = self.attempted_record.get_token(:facebook)
+              facebook = JSON.parse(self.attempted_record.active_token.get("/me"))
+              if facebook["email"]
+                existing_user = klass.find_by_email(facebook["email"])
+                if existing_user
+                  self.attempted_record = existing_user
+                  self.attempted_record.access_tokens = [token_class.new(hash)]                  
+                end
+              end
+            end
             self.attempted_record.save
           else
             auth_session[:_key] = hash[:key]
